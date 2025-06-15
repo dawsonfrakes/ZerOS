@@ -89,6 +89,7 @@ def parse_code(s: str, p: int) -> tuple[Code | None, int]:
       if p < len(s) and s[p].lower() == "e":
         if base != 10: raise Parse_Error("A floating point literal can not contain an integer base prefix.", start)
         p += 1
+        if p < len(s) and s[p] in "+-": p += 1
         if p < len(s) and not s[p].isdigit(): raise Parse_Error("You are missing a digit after your floating point literal's exponentiation demarcator.", p - 1)
         while p < len(s) and s[p].isdigit(): p += 1
       (codes[-1].as_tuple if len(codes) > 0 else codes).append(Code(start, Code_Kind.NUMBER, s[start:p]))
@@ -124,7 +125,7 @@ class Type:
 @dataclass(eq=True)
 class Type_Procedure(Type):
   return_type: Type
-  parameter_types: tuple[Type]
+  parameter_types: tuple[Type, ...]
   varargs_type: Type | None
   is_macro: bool
   is_c_varargs: bool
@@ -143,11 +144,11 @@ def type_as_string(type: Type) -> str:
   if type == type_void: return "($type 'VOID)"
   if type == type_untyped_integer: return "($type 'UNTYPED_INTEGER)"
   if type == type_untyped_float: return "($type 'UNTYPED_FLOAT)"
-  raise NotImplementedError(type.kind)
+  raise NotImplementedError(type.kind.name)
 
 @dataclass
 class Procedure:
-  parameter_names: tuple[str]
+  parameter_names: tuple[str, ...]
   body: collections.abc.Callable[..., "Value"]
 
 @dataclass
@@ -230,9 +231,25 @@ def builtin_code(code_value: Value, **_: None) -> Value:
 def builtin_insert(code_value: Value, **kwargs: Env) -> Value:
   return evaluate_code(code_value.as_code, kwargs["calling_env"])
 
+def builtin_type(kind_value: Value, details_value: Value, **_: None) -> Value:
+  if kind_value.as_code.kind != Code_Kind.IDENTIFIER: raise Evaluation_Error("$type expects argument `kind` to be a Code_Kind.IDENTIFIER.", kind_value.as_code)
+  kind = kind_value.as_code.as_atom
+  if kind == "TYPE": return Value(type_type, type_type)
+  if kind == "CODE": return Value(type_type, type_code)
+  if kind == "ANY": return Value(type_type, type_any)
+  if kind == "VOID": return Value(type_type, type_void)
+  raise Evaluation_Error(f"$type does not know how to handle type kind `{kind}`.", kind_value.as_code)
+
+def builtin_cast(type_value: Value, value: Value, **kwargs: Code) -> Value:
+  try: return coerce(value, type_value.as_type, kwargs["nearest_code"])
+  except:
+    raise Evaluation_Error(f"I failed to cast `{value_as_string(value)}` to `{type_as_string(type_value.as_type)}`", kwargs["nearest_code"])
+
 default_env = Env(None, {
   "$code": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_code, (type_code,), None, True, False), Procedure(("code",), builtin_code))),
   "$insert": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_any, (type_code,), None, False, False), Procedure(("code",), builtin_insert))),
+  "$type": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_type, (type_code, type_code), None, False, False), Procedure(("kind", "details"), builtin_type))),
+  "$cast": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_any, (type_type, type_any), None, False, False), Procedure(("type", "value"), builtin_cast))),
 })
 
 def repl() -> None:
