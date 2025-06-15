@@ -119,11 +119,11 @@ class Type_Kind(IntEnum):
   FLOAT = 11
   PROCEDURE = 20
 
-@dataclass(eq=True)
+@dataclass
 class Type:
   kind: Type_Kind
 
-@dataclass(eq=True)
+@dataclass
 class Type_Procedure(Type):
   return_type: Type
   parameter_types: tuple[Type, ...]
@@ -281,11 +281,11 @@ default_env = Env(None, {
 
 def repl() -> None:
   file = "repl"
+  env = Env(default_env, {})
   while True:
     try: src = input("> ")
     except (KeyboardInterrupt, EOFError): print(""); break
     pos = 0
-    env = Env(default_env, {})
     while True:
       try: code, pos = parse_code(src, pos)
       except Parse_Error as e: print(f"{file}[{e.location}] {e}"); break
