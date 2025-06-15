@@ -112,6 +112,7 @@ class Type_Kind(IntEnum):
   CODE = 1
   ANY = 2
   VOID = 5
+  BOOL = 6
   UNTYPED_INTEGER = 8
   UNTYPED_FLOAT = 9
   INTEGER = 10
@@ -134,6 +135,7 @@ type_type = Type(Type_Kind.TYPE)
 type_code = Type(Type_Kind.CODE)
 type_any = Type(Type_Kind.ANY)
 type_void = Type(Type_Kind.VOID)
+type_bool = Type(Type_Kind.BOOL)
 type_untyped_integer = Type(Type_Kind.UNTYPED_INTEGER)
 type_untyped_float = Type(Type_Kind.UNTYPED_FLOAT)
 
@@ -142,6 +144,7 @@ def type_as_string(type: Type) -> str:
   if type == type_code: return "($type 'CODE)"
   if type == type_any: return "($type 'ANY)"
   if type == type_void: return "($type 'VOID)"
+  if type == type_bool: return "($type 'BOOL)"
   if type == type_untyped_integer: return "($type 'UNTYPED_INTEGER)"
   if type == type_untyped_float: return "($type 'UNTYPED_FLOAT)"
   raise NotImplementedError(type.kind.name)
@@ -151,7 +154,7 @@ class Procedure:
   parameter_names: tuple[str, ...]
   body: collections.abc.Callable[..., "Value"]
 
-@dataclass
+@dataclass(eq=False)
 class Value:
   type: Type
   data: Type | Code | int | float | Procedure | None
@@ -167,6 +170,8 @@ class Value:
   def as_procedure(self) -> Procedure: assert isinstance(self.data, Procedure); return self.data
 
 value_void = Value(type_void, None)
+value_true = Value(type_bool, None)
+value_false = Value(type_bool, None)
 
 @dataclass
 class Env_Entry:
@@ -186,6 +191,11 @@ class Evaluation_Error(Exception):
   def __init__(self, message: str, code: Code) -> None:
     super().__init__(message)
     self.code = code
+
+def is_equal(a: Value, b: Value) -> bool:
+  if a.type == type_untyped_integer and b.type == type_untyped_integer: return a.as_integer == b.as_integer
+  if a.type == type_untyped_float and b.type == type_untyped_float: return a.as_float == b.as_float
+  raise NotImplementedError(a.type.kind.name, b.type.kind.name)
 
 def coerce(value: Value, to: Type, nearest_code: Code) -> Value:
   if value.type == to: return value
@@ -219,11 +229,25 @@ def value_as_string(value: Value) -> str:
   if value.type == type_code: return code_as_string(value.as_code)
   if value.type == type_any: return "($cast ($type 'ANY) 0)"
   if value.type == type_void: return "($cast ($type 'VOID) 0)"
+  if value.type == type_bool: return f"($cast ($type 'BOOL) {1 if value is value_true else 0})"
   if value.type == type_untyped_integer: return str(value.as_integer)
   if value.type == type_untyped_float: return str(value.as_float)
   if value.type.kind == Type_Kind.PROCEDURE:
     return "($proc (...) ... ...)"
   raise NotImplementedError(value.type.kind.name)
+
+def builtin_define(name_value: Value, value: Value, **kwargs: Env) -> Value:
+  if name_value.as_code.kind != Code_Kind.IDENTIFIER: raise Evaluation_Error("$define expects argument `name` to be a Code_Kind.IDENTIFIER.", name_value.as_code)
+  name = name_value.as_code.as_atom
+  if name in kwargs["calling_env"].table: raise Evaluation_Error(f"$define can not redefine `{name}` in the same environment.", name_value.as_code)
+  kwargs["calling_env"].table[name] = Env_Entry(value)
+  return value_void
+
+def builtin_if(test_value: Value, conseq_value: Value, alt_value: Value, **kwargs: Env) -> Value:
+  return evaluate_code(conseq_value.as_code, kwargs["calling_env"]) if test_value is value_true else evaluate_code(alt_value.as_code, kwargs["calling_env"])
+
+def builtin_eq(lhs_value: Value, rhs_value: Value, **_: None) -> Value:
+  return value_true if is_equal(lhs_value, rhs_value) else value_false
 
 def builtin_code(code_value: Value, **_: None) -> Value:
   return code_value
@@ -246,6 +270,9 @@ def builtin_cast(type_value: Value, value: Value, **kwargs: Code) -> Value:
     raise Evaluation_Error(f"I failed to cast `{value_as_string(value)}` to `{type_as_string(type_value.as_type)}`", kwargs["nearest_code"])
 
 default_env = Env(None, {
+  "$define": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_void, (type_code, type_any), None, False, False), Procedure(("name", "value"), builtin_define))),
+  "$if": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_any, (type_bool, type_code, type_code), None, True, False), Procedure(("test", "conseq", "alt"), builtin_if))),
+  "$==": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_bool, (type_any, type_any), None, False, False), Procedure(("lhs", "rhs"), builtin_eq))),
   "$code": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_code, (type_code,), None, True, False), Procedure(("code",), builtin_code))),
   "$insert": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_any, (type_code,), None, False, False), Procedure(("code",), builtin_insert))),
   "$type": Env_Entry(Value(Type_Procedure(Type_Kind.PROCEDURE, type_type, (type_code, type_code), None, False, False), Procedure(("kind", "details"), builtin_type))),
