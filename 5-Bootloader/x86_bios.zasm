@@ -1,0 +1,14 @@
+(org 0x7C00)
+
+(mov ax (| (<< 0xE 8) (ord "A")))
+(int 0x10)
+
+(jmp halt)
+
+(: halt)
+(cli)
+(: .loop)
+(hlt)
+(jmp .loop)
+
+(db (dup (- 510 (- $ $$)) 0) 0x55 0xAA)
