@@ -1,7 +1,19 @@
 (org 0x7C00)
 
-(mov ax (| (<< 0xE 8) (ord "A")))
-(int 0x10)
+(jmp 0x0 set_cs)
+(: set_cs)
+(xor bx bx)
+(mov es bx)
+(mov ds bx)
+(mov ss bx)
+
+(mov bp $$)
+(mov sp bp)
+
+(mov (memory boot_drive) dx)
+
+(mov al (ord "Z"))
+(call bios_print_character)
 
 (jmp halt)
 
@@ -10,5 +22,15 @@
 (: .loop)
 (hlt)
 (jmp .loop)
+
+; al=character
+(: bios_print_character)
+(pusha)
+(mov ah 0xE)
+(int 0x10)
+(popa)
+(ret)
+
+(label boot_drive) (db 0)
 
 (db (dup (- 510 (- $ $$)) 0) 0x55 0xAA)
